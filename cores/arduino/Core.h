@@ -17,8 +17,11 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-#ifndef Arduino_h
-#define Arduino_h
+#ifndef Core_h
+#define Core_h
+
+#include "ecv.h"		// macros for Escher C/C++ Verifier design-by-contract annotations
+#undef yield			// eCv definition clashes with function 'yield' in wiring.c (can use _ecv_yield instead within annotations)
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -51,6 +54,9 @@ void yield(void);
 /* sketch */
 extern void setup(void);
 extern void loop(void);
+
+typedef uint8_t Pin;
+static const Pin NoPin = 0xFF;
 
 //#define NOT_A_PIN 0  // defined in pio.h/EPioType
 #define NOT_A_PORT			(0)

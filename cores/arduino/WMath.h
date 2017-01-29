@@ -32,6 +32,8 @@ extern uint32_t trueRandom();
 #ifdef __cplusplus
 }
 
+#include <cmath>
+
 extern int32_t random(int32_t);
 extern int32_t random(int32_t, int32_t);
 extern int32_t map(int32_t, int32_t, int32_t, int32_t, int32_t);
@@ -56,25 +58,25 @@ template<class X> inline X max(X _a, X _b)
 	return (_a > _b) ? _a : _b;
 }
 
-// Specialisations for float and double to handle NANs properly
+// Specialisations for float and double to handle NaNs properly
 template<> inline float min(float _a, float _b)
 {
-	return (isnan(_a) || _a < _b) ? _a : _b;
+	return (std::isnan(_a) || _a < _b) ? _a : _b;
 }
 
 template<> inline float max(float _a, float _b)
 {
-	return (isnan(_a) || _a > _b) ? _a : _b;
+	return (std::isnan(_a) || _a > _b) ? _a : _b;
 }
 
 template<> inline double min(double _a, double _b)
 {
-	return (isnan(_a) || _a < _b) ? _a : _b;
+	return (std::isnan(_a) || _a < _b) ? _a : _b;
 }
 
 template<> inline double max(double _a, double _b)
 {
-	return (isnan(_a) || _a > _b) ? _a : _b;
+	return (std::isnan(_a) || _a > _b) ? _a : _b;
 }
 
 inline float fsquare(float arg)
@@ -99,9 +101,10 @@ inline void swap(float& a, float& b)
 	b = temp;
 }
 
-template<class T> inline float constrain(T val, T vmin, T vmax)
+// Note that constrain<float> will return NaN for a NaN input because of the way we define min<float> and max<float>
+template<class T> inline T constrain(T val, T vmin, T vmax)
 {
-	return max<T>(vmin, min<T>(val, vmax));
+	return max<T>(min<T>(val, vmax), vmin);
 }
 
 #endif
