@@ -41,7 +41,7 @@ post(result <= top)
 // Return true if successful, false if we need to fall back to digitalWrite
 static bool AnalogWriteDac(const PinDescription& pinDesc, float ulValue)
 pre(0.0 <= ulValue; ulValue <= 1.0)
-pre((pinDesc.ulAttribute & PIN_ATTR_DAC) != 0)
+pre((pinDesc.ulPinAttribute & PIN_ATTR_DAC) != 0)
 {
 	const AnalogChannelNumber channel = pinDesc.ulADCChannelNumber;
 	const uint32_t chDACC = ((channel == DA0) ? 0 : 1);
@@ -99,11 +99,14 @@ static bool PWMEnabled = false;
 static uint16_t PWMChanFreq[numPwmChannels] = {0};
 static uint16_t PWMChanPeriod[numPwmChannels];
 
+//***Temporary for debugging
+uint32_t maxPwmLoopCount = 0;
+
 // AnalogWrite to a PWM pin
 // Return true if successful, false if we need to fall back to digitalWrite
 static bool AnalogWritePwm(const PinDescription& pinDesc, float ulValue, uint16_t freq)
 pre(0.0 <= ulValue; ulValue <= 1.0)
-pre((pinDesc.ulAttribute & PIN_ATTR_PWM) != 0)
+pre((pinDesc.ulPinAttribute & PIN_ATTR_PWM) != 0)
 {
 	const uint32_t chan = pinDesc.ulPWMChannel;
 	if (freq == 0)
@@ -122,28 +125,62 @@ pre((pinDesc.ulAttribute & PIN_ATTR_PWM) != 0)
 			clockConfig.ul_clkb = PwmFastClock;
 			clockConfig.ul_mck = VARIANT_MCK;
 			pwm_init(PWM, &clockConfig);
+			PWM->PWM_SCM = 0;						// ensure no sync channels
 			PWMEnabled = true;
 		}
 
-		pwm_channel_disable(PWM, chan);
-		bool useFastClock = (freq >= PwmFastClock/65535);
-		uint32_t period = ((useFastClock) ? PwmFastClock : PwmSlowClock)/freq;
-		// Setup PWM for this PWM channel
+		const bool useFastClock = (freq >= PwmFastClock/65535);
+		const uint32_t period = ((useFastClock) ? PwmFastClock : PwmSlowClock)/freq;
+		const uint32_t duty = ConvertRange(ulValue, period);
+
+		PWMChanFreq[chan] = freq;
+		PWMChanPeriod[chan] = (uint16_t)period;
+
+		// Set up the PWM channel
+		// We need to work around a bug in the SAM PWM channels. Enabling a channel is supposed to clear the counter, but it doesn't.
+		// A further complication is that on the SAM3X, the update-period register doesn't appear to work.
+		// So we need to make sure the counter is less than the new period before we change the period.
+		for (unsigned int j = 0; j < 5; ++j)										// twice through should be enough, but just in case...
+		{
+			pwm_channel_disable(PWM, chan);
+			if (j > maxPwmLoopCount)
+			{
+				maxPwmLoopCount = j;
+			}
+			uint32_t oldCurrentVal = PWM->PWM_CH_NUM[chan].PWM_CCNT & 0xFFFF;
+			if (oldCurrentVal < period || oldCurrentVal > 65536 - 10)	// if counter is already small enough or about to wrap round, OK
+			{
+				break;
+			}
+			oldCurrentVal += 2;											// note: +1 doesn't work here, has to be at least +2
+			PWM->PWM_CH_NUM[chan].PWM_CPRD = oldCurrentVal;				// change the period to be just greater than the counter
+			PWM->PWM_CH_NUM[chan].PWM_CMR = PWM_CMR_CPRE_CLKB;			// use the fast clock to avoid waiting too long
+			pwm_channel_enable(PWM, chan);
+			for (unsigned int i = 0; i < 1000; ++i)
+			{
+				const uint32_t newCurrentVal = PWM->PWM_CH_NUM[chan].PWM_CCNT & 0xFFFF;
+				if (newCurrentVal < period || newCurrentVal > oldCurrentVal)
+				{
+					break;												// get out when we have wrapped round, or failed to
+				}
+			}
+		}
+
+		pwm_channel_t channelConfig;
+		memset(&channelConfig, 0, sizeof(channelConfig));				// clear unused fields
+		channelConfig.channel = chan;
+		channelConfig.ul_prescaler = (useFastClock) ? PWM_CMR_CPRE_CLKB : PWM_CMR_CPRE_CLKA;
+		channelConfig.ul_duty = duty;
+		channelConfig.ul_period = period;
+
+		pwm_channel_init(PWM, &channelConfig);
+		pwm_channel_enable(PWM, chan);
+
+		// Now setup the PWM output pin for PWM this channel - do this after configuring the PWM to avoid glitches
 		pio_configure(pinDesc.pPort,
 				pinDesc.ulPinType,
 				pinDesc.ulPin,
 				pinDesc.ulPinConfiguration);
-		pwm_channel_t channelConfig;
-		memset(&channelConfig, 0, sizeof(channelConfig));		// clear unused fields
-		channelConfig.ul_prescaler = (useFastClock) ? PWM_CMR_CPRE_CLKB : PWM_CMR_CPRE_CLKA;
-		channelConfig.ul_period = period;
-		channelConfig.ul_duty = ConvertRange(ulValue, period);
-		channelConfig.channel = chan;
-		pwm_channel_init(PWM, &channelConfig);
-		pwm_channel_enable(PWM, chan);
-
-		PWMChanFreq[chan] = freq;
-		PWMChanPeriod[chan] = (uint16_t)period;
 	}
 	else
 	{
@@ -184,13 +221,18 @@ static inline void TC_SetCMR_ChannelB(Tc *tc, uint32_t chan, uint32_t v)
 	tc->TC_CHANNEL[chan].TC_CMR = (tc->TC_CHANNEL[chan].TC_CMR & 0xF0FFFFFF) | v;
 }
 
+static inline void TC_WriteCCR(Tc *tc, uint32_t chan, uint32_t v)
+{
+	tc->TC_CHANNEL[chan].TC_CCR = v;
+}
+
 // AnalogWrite to a TC pin
 // Return true if successful, false if we need to fall back to digitalWrite
 // WARNING: this will screw up big time if you try to use both the A and B outputs of the same timer at different frequencies.
 // The DuetNG board uses only A outputs, so this is OK.
 static bool AnalogWriteTc(const PinDescription& pinDesc, float ulValue, uint16_t freq)
 pre(0.0 <= ulValue; ulValue <= 1.0)
-pre((pinDesc.ulAttribute & PIN_ATTR_TIMER) != 0)
+pre((pinDesc.ulPinAttribute & PIN_ATTR_TIMER) != 0)
 {
 	const uint32_t chan = (uint32_t)pinDesc.ulTCChannel >> 1;
 	if (freq == 0)
@@ -202,7 +244,7 @@ pre((pinDesc.ulAttribute & PIN_ATTR_TIMER) != 0)
 	{
 		Tc * const chTC = channelToTC[chan];
 		const uint32_t chNo = channelToChNo[chan];
-		bool doInit = (TCChanFreq[chan] != freq);
+		const bool doInit = (TCChanFreq[chan] != freq);
 
 		if (doInit)
 		{
@@ -213,15 +255,24 @@ pre((pinDesc.ulAttribute & PIN_ATTR_TIMER) != 0)
 
 			// Set up the timer mode and top count
 			tc_init(chTC, chNo,
-							TC_CMR_TCCLKS_TIMER_CLOCK2 |		// clock is MCLK/8 to save a little power and avoid overflow later on
-							TC_CMR_WAVE |         				// Waveform mode
-							TC_CMR_WAVSEL_UP_RC | 				// Counter running up and reset when equals to RC
-							TC_CMR_EEVT_XC0 |     				// Set external events from XC0 (this setup TIOB as output)
+							TC_CMR_TCCLKS_TIMER_CLOCK2 |			// clock is MCLK/8 to save a little power and avoid overflow later on
+							TC_CMR_WAVE |         					// Waveform mode
+							TC_CMR_WAVSEL_UP_RC | 					// Counter running up and reset when equals to RC
+							TC_CMR_EEVT_XC0 |     					// Set external events from XC0 (this setup TIOB as output)
 							TC_CMR_ACPA_CLEAR | TC_CMR_ACPC_CLEAR |
-							TC_CMR_BCPB_CLEAR | TC_CMR_BCPC_CLEAR);
+							TC_CMR_BCPB_CLEAR | TC_CMR_BCPC_CLEAR |
+							TC_CMR_ASWTRG_SET | TC_CMR_BSWTRG_SET);	// Software trigger will let us set the output high
 			const uint32_t top = (VARIANT_MCK/8)/(uint32_t)freq;	// with 120MHz clock this varies between 228 (@ 65.535kHz) and 15 million (@ 1Hz)
 			// The datasheet doesn't say how the period relates to the RC value, but from measurement it seems that we do not need to subtract one from top
 			tc_write_rc(chTC, chNo, top);
+
+			// When using TC channels to do PWM control of heaters with active low outputs on the Duet WiFi, if we don't take precautions
+			// then we get a glitch straight after initialising the channel, because the compare output starts in the low state.
+			// To avoid that, set the output high here if a high PWM was requested.
+			if (ulValue >= 0.5)
+			{
+				TC_WriteCCR(chTC, chan, TC_CCR_SWTRG);
+			}
 		}
 
 		const uint32_t threshold = ConvertRange(ulValue, tc_read_rc(chTC, chNo));
@@ -263,6 +314,8 @@ pre((pinDesc.ulAttribute & PIN_ATTR_TIMER) != 0)
 }
 
 // Analog write to DAC, PWM, TC or plain output pin
+// Setting the frequency of a TC or PWM pin to zero resets it so that the next call to AnalogOut with a non-zero frequency
+// will re-initialise it. The pinMode function relies on this.
 void AnalogOut(Pin pin, float ulValue, uint16_t freq)
 {
 	if (pin > MaxPinNumber || std::isnan(ulValue))
