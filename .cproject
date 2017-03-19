@@ -355,10 +355,11 @@
 		<configuration configurationName="SAM3X8E">
 			<resource resourceType="PROJECT" workspacePath="/CoreNG"/>
 		</configuration>
-		<configuration configurationName="SAM4E_PROTO1"/>
+		<configuration configurationName="RADDS"/>
 		<configuration configurationName="SAM4E8E">
 			<resource resourceType="PROJECT" workspacePath="/CoreNG"/>
 		</configuration>
+		<configuration configurationName="SAM4E_PROTO1"/>
 	</storageModule>
 	<storageModule moduleId="scannerConfiguration">
 		<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
@@ -395,4 +396,5 @@
 			</profile>
 		</scannerConfigBuildInfo>
 	</storageModule>
+	<storageModule moduleId="org.eclipse.cdt.make.core.buildtargets"/>
 </cproject>
