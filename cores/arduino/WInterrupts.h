@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-void attachInterrupt(uint32_t pin, void (*callback)(void), uint32_t mode);
+void attachInterrupt(uint32_t pin, void (*callback)(void*), uint32_t mode, void *param);
 
 void detachInterrupt(uint32_t pin);
 
@@ -33,7 +33,7 @@ void detachInterrupt(uint32_t pin);
 }
 #endif
 
-// Return true id we are in an interrupt service routine
+// Return true if we are in an interrupt service routine
 bool inInterrupt();
 
 #endif /* _WIRING_INTERRUPTS_ */

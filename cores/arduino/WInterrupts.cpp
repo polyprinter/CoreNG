@@ -20,28 +20,25 @@
 
 const uint32_t pioInterruptPriority = 5;
 
-typedef void (*interruptCB)(void);
+typedef void (*interruptCB)(void*);
 
-static interruptCB callbacksPioA[32];
-static interruptCB callbacksPioB[32];
-static interruptCB callbacksPioC[32];
-static interruptCB callbacksPioD[32];
+struct InterruptCallback
+{
+	interruptCB func;
+	void *param;
+};
+
+static InterruptCallback callbacksPioA[32] = { 0 };
+static InterruptCallback callbacksPioB[32] = { 0 };
+static InterruptCallback callbacksPioC[32] = { 0 };
+static InterruptCallback callbacksPioD[32] = { 0 };
 #ifdef ID_PIOE
-static interruptCB callbacksPioE[32];
+static InterruptCallback callbacksPioE[32] = { 0 };
 #endif
 
 /* Configure PIO interrupt sources */
-static void __initialize() {
-	for (size_t i=0; i<32; i++) {
-		callbacksPioA[i] = NULL;
-		callbacksPioB[i] = NULL;
-		callbacksPioC[i] = NULL;
-		callbacksPioD[i] = NULL;
-#ifdef ID_PIOE
-		callbacksPioE[i] = NULL;
-#endif
-	}
-
+static void __initialize()
+{
 	pmc_enable_periph_clk(ID_PIOA);
 	NVIC_DisableIRQ(PIOA_IRQn);
 	NVIC_ClearPendingIRQ(PIOA_IRQn);
@@ -75,7 +72,35 @@ static void __initialize() {
 #endif
 }
 
-extern "C" void attachInterrupt(uint32_t pin, void (*callback)(void), uint32_t mode)
+// Get the number of the highest bit that is set in a 32-bit word. Returns 0 if no bit set (same as if lowest bit is set).
+// This needs to be fast. Hopefully the ARM conditional instructions will be used to advantage here.
+static unsigned int GetHighestBit(uint32_t bits)
+{
+	unsigned int bitNum = 0;
+	if (bits >= 0x00010000)
+	{
+		bitNum += 16;
+	}
+	if ((bits >> bitNum) >= 0x0100)
+	{
+		bitNum += 8;
+	}
+	if ((bits >> bitNum) >= 0x0010)
+	{
+		bitNum += 4;
+	}
+	if ((bits >> bitNum) >= 0x0004)
+	{
+		bitNum += 2;
+	}
+	if ((bits >> bitNum) >= 0x0002)
+	{
+		bitNum += 1;
+	}
+	return bitNum;
+}
+
+extern "C" void attachInterrupt(uint32_t pin, void (*callback)(void*), uint32_t mode, void *param)
 {
 	static int enabled = 0;
 	if (!enabled)
@@ -85,33 +110,38 @@ extern "C" void attachInterrupt(uint32_t pin, void (*callback)(void), uint32_t m
 	}
 
 	// Retrieve pin information
-	Pio *pio = g_APinDescription[pin].pPort;
-	uint32_t mask = g_APinDescription[pin].ulPin;
-	uint32_t pos = 0;
+	Pio * const pio = g_APinDescription[pin].pPort;
+	const uint32_t mask = g_APinDescription[pin].ulPin;
+	const uint32_t pos = GetHighestBit(mask);
 
-	for (uint32_t t = mask; t>1; t>>=1, pos++) {}
+	// Set callback function and parameter
+	const irqflags_t flags = cpu_irq_save();
 
-	// Set callback function
 	if (pio == PIOA)
 	{
-		callbacksPioA[pos] = callback;
+		callbacksPioA[pos].func = callback;
+		callbacksPioA[pos].param = param;
 	}
 	else if (pio == PIOB)
 	{
-		callbacksPioB[pos] = callback;
+		callbacksPioB[pos].func = callback;
+		callbacksPioB[pos].param = param;
 	}
 	else if (pio == PIOC)
 	{
-		callbacksPioC[pos] = callback;
+		callbacksPioC[pos].func = callback;
+		callbacksPioC[pos].param = param;
 	}
 	else if (pio == PIOD)
 	{
-		callbacksPioD[pos] = callback;
+		callbacksPioD[pos].func = callback;
+		callbacksPioD[pos].param = param;
 	}
 #ifdef ID_PIOE
 	else if (pio == PIOE)
 	{
-		callbacksPioE[pos] = callback;
+		callbacksPioE[pos].func = callback;
+		callbacksPioE[pos].param = param;
 	}
 #endif
 
@@ -127,103 +157,94 @@ extern "C" void attachInterrupt(uint32_t pin, void (*callback)(void), uint32_t m
 		pio->PIO_AIMER = mask;
 
 		// Select mode of operation
-		if (mode == LOW) {
+		switch(mode)
+		{
+		case LOW:
 			pio->PIO_LSR = mask;    // "Level" Select Register
 			pio->PIO_FELLSR = mask; // "Falling Edge / Low Level" Select Register
-		}
-		if (mode == HIGH) {
+			break;
+
+		case HIGH:
 			pio->PIO_LSR = mask;    // "Level" Select Register
 			pio->PIO_REHLSR = mask; // "Rising Edge / High Level" Select Register
-		}
-		if (mode == FALLING) {
+			break;
+
+		case FALLING:
 			pio->PIO_ESR = mask;    // "Edge" Select Register
 			pio->PIO_FELLSR = mask; // "Falling Edge / Low Level" Select Register
-		}
-		if (mode == RISING) {
+			break;
+
+		case RISING:
 			pio->PIO_ESR = mask;    // "Edge" Select Register
 			pio->PIO_REHLSR = mask; // "Rising Edge / High Level" Select Register
+			break;
+
+		default:
+			break;
 		}
 	}
 
 	// Enable interrupt
 	pio->PIO_IER = mask;
+
+	cpu_irq_restore(flags);
 }
 
 extern "C" void detachInterrupt(uint32_t pin)
 {
 	// Retrieve pin information
-	Pio *pio = g_APinDescription[pin].pPort;
-	uint32_t mask = g_APinDescription[pin].ulPin;
+	Pio * const pio = g_APinDescription[pin].pPort;
+	const uint32_t mask = g_APinDescription[pin].ulPin;
 
 	// Disable interrupt
 	pio->PIO_IDR = mask;
 }
 
-// Return true if we are in an interrupt service routine
+// Return true if we are in any interrupt service routine
 bool inInterrupt()
 {
 	return (__get_IPSR() & 0x01FF) != 0;
 }
 
+// Common PIO interrupt handler
+void CommonPioHandler(Pio *pio, const InterruptCallback callbacks[])
+{
+	uint32_t isr = pio->PIO_ISR & pio->PIO_IMR;
+	while (isr != 0)
+	{
+		const unsigned int pos = GetHighestBit(isr);
+		if (callbacks[pos].func != nullptr)
+		{
+			callbacks[pos].func(callbacks[pos].param);
+		}
+		isr &= ~(1u << pos);
+	}
+}
+
 extern "C" void PIOA_Handler(void)
 {
-	uint32_t isr = PIOA->PIO_ISR;
-	for (uint32_t i=0; i<32; i++, isr>>=1)
-	{
-		if ((isr & 0x1) != 0 && callbacksPioA[i] != nullptr)
-		{
-			callbacksPioA[i]();
-		}
-	}
+	CommonPioHandler(PIOA, callbacksPioA);
 }
 
 extern "C" void PIOB_Handler(void)
 {
-	uint32_t isr = PIOB->PIO_ISR;
-	for (uint32_t i=0; i<32; i++, isr>>=1)
-	{
-		if ((isr & 0x1) != 0 && callbacksPioB[i] != nullptr)
-		{
-			callbacksPioB[i]();
-		}
-	}
+	CommonPioHandler(PIOB, callbacksPioB);
 }
 
 extern "C" void PIOC_Handler(void)
 {
-	uint32_t isr = PIOC->PIO_ISR;
-	for (uint32_t i=0; i<32; i++, isr>>=1)
-	{
-		if ((isr & 0x1) != 0 && callbacksPioC[i] != nullptr)
-		{
-			callbacksPioC[i]();
-		}
-	}
+	CommonPioHandler(PIOC, callbacksPioC);
 }
 
 extern "C" void PIOD_Handler(void)
 {
-	uint32_t isr = PIOD->PIO_ISR;
-	for (uint32_t i=0; i<32; i++, isr>>=1)
-	{
-		if ((isr & 0x1) != 0 && callbacksPioD[i] != nullptr)
-		{
-			callbacksPioD[i]();
-		}
-	}
+	CommonPioHandler(PIOD, callbacksPioD);
 }
 
 #ifdef ID_PIOE
 extern "C" void PIOE_Handler(void)
 {
-	uint32_t isr = PIOE->PIO_ISR;
-	for (uint32_t i=0; i<32; i++, isr>>=1)
-	{
-		if ((isr & 0x1) != 0 && callbacksPioE[i] != nullptr)
-		{
-			callbacksPioE[i]();
-		}
-	}
+	CommonPioHandler(PIOE, callbacksPioE);
 }
 #endif
 

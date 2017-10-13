@@ -16,13 +16,19 @@
  */
 
 //! Device definition (mandatory)
-#define  USB_DEVICE_VENDOR_ID             0x1209			// VID from which PIDs are allocated to open source projects
 
 #if SAM3XA
-#define  USB_DEVICE_PRODUCT_ID            0x60EC			// PID allocated to us for older Duets
+#define  USB_DEVICE_VENDOR_ID             0x1209			// pidcodes.org VID from which PIDs are allocated to open source projects
+# ifdef __ALLIGATOR__
+#  define  USB_DEVICE_PRODUCT_ID            0xAB3D			// PID allocated for Alligator board
+# else
+#  define  USB_DEVICE_PRODUCT_ID            0xD3D8			// PID allocated to us for older Duets
+# endif
 #endif
+
 #if SAM4E
-#define  USB_DEVICE_PRODUCT_ID            0x60ED			// PID allocated to us for Duet NG series
+#define  USB_DEVICE_VENDOR_ID             0x1D50			// openmoku.org VID from which PIDs are allocated to open source projects
+#define  USB_DEVICE_PRODUCT_ID            0x60EC			// PID allocated to us for Duet NG series
 #endif
 
 #define  USB_DEVICE_MAJOR_VERSION         1
@@ -35,9 +41,13 @@
 // (USB_CONFIG_ATTR_REMOTE_WAKEUP|USB_CONFIG_ATTR_BUS_POWERED)
 
 //! USB Device string definitions (Optional)
-#define  USB_DEVICE_MANUFACTURE_NAME      "Duet3D"
-#define  USB_DEVICE_PRODUCT_NAME          "Duet"
-// #define  USB_DEVICE_SERIAL_NAME           "12...EF"
+#if defined(__ALLIGATOR__)
+# define  USB_DEVICE_MANUFACTURE_NAME      "3DArtists"
+# define  USB_DEVICE_PRODUCT_NAME          "Alligator"
+#else
+# define  USB_DEVICE_MANUFACTURE_NAME      "Duet3D"
+# define  USB_DEVICE_PRODUCT_NAME          "Duet"
+#endif
 
 /**
  * USB Device Callbacks definitions (Optional)
