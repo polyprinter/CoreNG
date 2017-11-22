@@ -10,7 +10,7 @@
 #include "udi_cdc.h"		// Atmel CDC module
 #include "udc.h"
 
-#ifdef __SAM4E8E__
+#if SAM4E
 #include "WInterrupts.h"
 
 void core_vbus_off(void*);
@@ -20,7 +20,7 @@ void core_vbus_off(void*);
 
 SerialCDC::SerialCDC() : /* _cdc_tx_buffer(), */ txBufsize(1), isConnected(false)
 {
-#ifdef __SAM4E8E__
+#if SAM4E
 	attachInterrupt(USB_VBUS_PIN, core_vbus_off, FALLING, nullptr);
 #endif
 }
@@ -75,13 +75,13 @@ size_t SerialCDC::write(uint8_t c)
 	return 1;
 }
 
-// Non-blocking write to USB. Returns number of bytes written.
+// Non-blocking write to USB. Returns number of bytes written. If we are not connected, pretend that all bytes hacve been written.
 size_t SerialCDC::write(const uint8_t *buffer, size_t size)
 {
 	if (isConnected && size != 0)
 	{
-		size_t remaining = udi_cdc_write_buf(buffer, size);
-		return size = remaining;
+		const size_t remaining = udi_cdc_write_buf(buffer, size);
+		return size - remaining;
 	}
 	return size;
 }
@@ -145,7 +145,7 @@ extern "C" void core_cdc_tx_empty_notify(uint8_t port)
 	SerialUSB.cdcTxEmptyNotify();
 }
 
-#ifdef __SAM4E8E__
+#if SAM4E
 // On the SAM4E there is only a GPIO pin available to monitor the VBUS state
 void core_vbus_off(void*)
 {

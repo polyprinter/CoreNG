@@ -12,27 +12,35 @@
 
 #include "Core.h"
 #include "SharedSpi.h"
-#include "compiler.h"
 #include "variant.h"
 
 #if SAM4E
 
 # include "usart/usart.h"		// On Duet NG the general SPI channel is on a USART
 
-# ifdef PROTOTYPE_1
-#  define USART_SSPI	USART1
-#  define ID_SSPI		ID_USART1
-# else
 #  define USART_SSPI	USART0
 #  define ID_SSPI		ID_USART0
-# endif
+
+#elif SAM4S
+
+# include "usart/usart.h"		// On Duet NG the general SPI channel is on a USART
+
+#  define USART_SSPI	USART0
+#  define ID_SSPI		ID_USART0
 
 #else
 
-// We have to tell the SAM3X which NPCS output we are using, even though we use other pins for CS
-// We choose NPCS3 because on the Duet, it is not physically connected
-#define PERIPHERAL_CHANNEL_ID		3
-#define PERIPHERAL_CHANNEL_CS_PIN	APIN_SPI_SS3
+// We have to tell the processor which NPCS output we are using, even though we use other pins for CS
+#if SAME70
+// We choose NPCS2 because on the SAME70, it is not physically connected
+// chrishamm 10-11-17: I am not sure if this is really needed, but CH2 is N/C anyway. Better leave this here for now
+# define PERIPHERAL_CHANNEL_ID		2
+# define PERIPHERAL_CHANNEL_CS_PIN	APIN_SPI_SS2
+#elif SAM3XA
+// We choose NPCS3 because on the SAM3X, it is not physically connected
+# define PERIPHERAL_CHANNEL_ID		3
+# define PERIPHERAL_CHANNEL_CS_PIN	APIN_SPI_SS3
+#endif
 
 
 /** Time-out value (number of attempts). */
@@ -75,7 +83,7 @@ void sspi_release()
 static inline bool waitForTxReady()
 {
 	uint32_t timeout = SPI_TIMEOUT;
-#if SAM4E
+#if SAM4E || SAM4S
 	while (!usart_is_tx_ready(USART_SSPI))
 #else
 	while (!spi_is_tx_ready(SSPI))
@@ -93,7 +101,7 @@ static inline bool waitForTxReady()
 static inline bool waitForTxEmpty()
 {
 	uint32_t timeout = SPI_TIMEOUT;
-#if SAM4E
+#if SAM4E || SAM4S
 	while (!usart_is_tx_empty(USART_SSPI))
 #else
 		while (!spi_is_tx_empty(SSPI))
@@ -111,7 +119,7 @@ static inline bool waitForTxEmpty()
 static inline bool waitForRxReady()
 {
 	uint32_t timeout = SPI_TIMEOUT;
-#if SAM4E
+#if SAM4E || SAM4S
 	while (!usart_is_rx_ready(USART_SSPI))
 #else
 	while (!spi_is_rx_ready(SSPI))
@@ -134,16 +142,10 @@ void sspi_master_init(struct sspi_device *device, uint32_t bits)
 
 	if (init_comms)
 	{
-#if SAM4E
-# ifdef PROTOTYPE_1
-		ConfigurePin(g_APinDescription[APIN_USART1_SCK]);
-		ConfigurePin(g_APinDescription[APIN_USART1_MOSI]);
-		ConfigurePin(g_APinDescription[APIN_USART1_MISO]);
-# else
+#if SAM4E || SAM4S
 		ConfigurePin(g_APinDescription[APIN_USART0_SCK]);
 		ConfigurePin(g_APinDescription[APIN_USART0_MOSI]);
 		ConfigurePin(g_APinDescription[APIN_USART0_MISO]);
-# endif
 		pmc_enable_periph_clk(ID_SSPI);
 
 		// Set USART0 in SPI master mode
@@ -177,7 +179,7 @@ void sspi_master_init(struct sspi_device *device, uint32_t bits)
 		init_comms = false;
 	}
 
-#if SAM4E
+#if SAM4E || SAM4S
 	// On USARTs we only support 8-bit transfers. 5, 6, 7 and 9 are also available.
 	device->bitsPerTransferControl = US_MR_CHRL_8_BIT;
 #else
@@ -205,7 +207,7 @@ void sspi_master_init(struct sspi_device *device, uint32_t bits)
  */
 void sspi_master_setup_device(const struct sspi_device *device)
 {
-#if SAM4E
+#if SAM4E || SAM4S
 	USART_SSPI->US_CR = US_CR_RXDIS | US_CR_TXDIS;			// disable transmitter and receiver
 	USART_SSPI->US_BRGR = SystemCoreClock/device->clockFrequency;
 	uint32_t mr = US_MR_USART_MODE_SPI_MASTER
@@ -301,7 +303,7 @@ spi_status_t sspi_transceive_packet(const uint8_t *tx_data, uint8_t *rx_data, si
 		}
 
 		// Write to transmit register
-#if SAM4E
+#if SAM4E || SAM4S
 		USART_SSPI->US_THR = dOut;
 #else
 		if (i + 1 == len)
@@ -318,7 +320,7 @@ spi_status_t sspi_transceive_packet(const uint8_t *tx_data, uint8_t *rx_data, si
 
 		// Get data from receive register
 		uint8_t dIn =
-#if SAM4E
+#if SAM4E || SAM4S
 				(uint8_t)USART_SSPI->US_RHR;
 #else
 				(uint8_t)SSPI->SPI_RDR;

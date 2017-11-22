@@ -29,7 +29,7 @@ enum PinMode
 	PIN_MODE_NOT_CONFIGURED = -1,	// used in Platform class to record that the mode for a pin has not been set yet
 	INPUT = 0,						// pin is a digital input
 	INPUT_PULLUP,					// pin is a digital input with pullup enabled
-#if SAM4E
+#if SAM4E || SAM4S || SAME70
 	INPUT_PULLDOWN,					// pin is a digital input with pulldown enabled
 #else
 	INPUT_PULLDOWN_NOT_AVAILABLE,
@@ -98,6 +98,20 @@ extern void setPullup(Pin pin, bool en);
 inline const PinDescription& GetPinDescription(Pin pin)
 {
 	return g_APinDescription[pin];
+}
+
+// Set a pin high with no error checking
+inline void fastDigitalWriteHigh(uint32_t pin)
+{
+	const PinDescription& pinDesc = g_APinDescription[pin];
+	pinDesc.pPort->PIO_SODR = pinDesc.ulPin;
+}
+
+// Set a pin low with no error checking
+inline void fastDigitalWriteLow(uint32_t pin)
+{
+	const PinDescription& pinDesc = g_APinDescription[pin];
+	pinDesc.pPort->PIO_CODR = pinDesc.ulPin;
 }
 
 #endif
