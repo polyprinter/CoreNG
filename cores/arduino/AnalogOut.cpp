@@ -307,7 +307,7 @@ pre((pinDesc.ulPinAttribute & PIN_ATTR_TIMER) != 0)
 	}
 	else
 	{
-		Tc * const chTC = channelToTC[chan];
+		Tc* const chTC = channelToTC[chan];
 		const uint32_t chNo = channelToChNo[chan];
 		const bool doInit = (TCChanFreq[chan] != freq);
 
@@ -318,30 +318,30 @@ pre((pinDesc.ulPinAttribute & PIN_ATTR_TIMER) != 0)
 			// Enable the peripheral clock to this timer
 			pmc_enable_periph_clk(channelToId[chan]);
 
-#if SAME70
 			// Set up the timer mode and top count
+#if SAM4S || SAME70
+			// The timer/counters are only 16 bits wide on the SAM4S and SAME70 so we need to use a higher prescaler
+			tc_init(chTC, chNo,
+							TC_CMR_TCCLKS_TIMER_CLOCK4 |			// clock is MCLK/128
+							TC_CMR_WAVE |         					// Waveform mode
+							TC_CMR_WAVSEL_UP_RC | 					// Counter running up and then down when equals to RC
+							TC_CMR_EEVT_XC0 |     					// Set external events from XC0 (this allows TIOB to be an output)
+							TC_CMR_ACPA_CLEAR | TC_CMR_ACPC_CLEAR |
+							TC_CMR_BCPB_CLEAR | TC_CMR_BCPC_CLEAR |
+							TC_CMR_ASWTRG_SET | TC_CMR_BSWTRG_SET);	// Software trigger will let us set the output high
+			const uint32_t top = min<uint32_t>((VARIANT_MCK/128)/(uint32_t)freq, 65535);	// with 120MHz clock (SAM4S) this varies between 14 @ 65.535kHz and 65535 @ 14.3Hz
+#else
 			tc_init(chTC, chNo,
 							TC_CMR_TCCLKS_TIMER_CLOCK2 |			// clock is MCLK/8 to save a little power and avoid overflow later on
 							TC_CMR_WAVE |         					// Waveform mode
 							TC_CMR_WAVSEL_UP_RC | 					// Counter running up and reset when equals to RC
-							TC_CMR_EEVT_XC0 |     					// Set external events from XC0 (this setup TIOB as output)
+							TC_CMR_EEVT_XC0 |     					// Set external events from XC0 (this allows TIOB to be an output)
 							TC_CMR_ACPA_CLEAR | TC_CMR_ACPC_CLEAR |
 							TC_CMR_BCPB_CLEAR | TC_CMR_BCPC_CLEAR |
 							TC_CMR_ASWTRG_SET | TC_CMR_BSWTRG_SET);	// Software trigger will let us set the output high
-			const uint32_t top = (VARIANT_MCK/8)/(uint32_t)freq;	// with 120MHz clock this varies between 228 (@ 65.535kHz) and 15 million (@ 1Hz)
-#else
-			// Set up the timer mode and top count
-			tc_init(chTC, chNo,
-							TC_CMR_TCCLKS_TIMER_CLOCK3 |			// clock is MCLK/32 to avoid overflow later on
-							TC_CMR_WAVE |         					// Waveform mode
-							TC_CMR_WAVSEL_UP_RC | 					// Counter running up and reset when equals to RC
-							TC_CMR_EEVT_XC0 |     					// Set external events from XC0 (this setup TIOB as output)
-							TC_CMR_ACPA_CLEAR | TC_CMR_ACPC_CLEAR |
-							TC_CMR_BCPB_CLEAR | TC_CMR_BCPC_CLEAR |
-							TC_CMR_ASWTRG_SET | TC_CMR_BSWTRG_SET);	// Software trigger will let us set the output high
-			const uint32_t top = (VARIANT_MCK/32)/(uint32_t)freq;	// with 300MHz clock this varies between 143 (@ 65.535kHz) and 9.3 million (@ 1Hz)
+			const uint32_t top = (VARIANT_MCK/8)/(uint32_t)freq;	// with 120MHz clock this varies between 228 @ 65.535kHz and 15 million @ 1Hz
 #endif
-			// The datasheet doesn't say how the period relates to the RC value, but from measurement it seems that we do not need to subtract one from top
+			// The datasheet doesn't say directly how the period relates to the RC value, but from measurement it seems that we do not need to subtract one from top
 			tc_write_rc(chTC, chNo, top);
 
 			// When using TC channels to do PWM control of heaters with active low outputs on the Duet WiFi, if we don't take precautions
